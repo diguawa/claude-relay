@@ -626,6 +626,13 @@
     <div style="font-size:11px;color:var(--text3);font-family:'JetBrains Mono',monospace;margin-bottom:14px;">
       官方直连填 <code style="color:var(--accent2)">https://api.anthropic.com</code>，中转按实际地址填写
     </div>
+    <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;margin-bottom:14px;">
+      <input type="checkbox" id="proxyToggle" style="width:16px;height:16px;accent-color:var(--accent);cursor:pointer;" />
+      <div>
+        <div style="font-size:12px;color:var(--text);font-family:'JetBrains Mono',monospace;">启用 CORS 代理（GitHub Pages 必须开）</div>
+        <div style="font-size:11px;color:var(--text3);font-family:'JetBrains Mono',monospace;margin-top:2px;">请求经 corsproxy.io 转发，解决跨域拦截</div>
+      </div>
+    </div>
     <div class="modal-actions">
       <button class="btn-cancel" id="keyCancel">取消</button>
       <button class="btn-primary" id="keySave">保存并开始</button>
@@ -1059,7 +1066,12 @@ async function callClaudeAPI(messages, stream = true) {
   if (sysPrompt) body.system = sysPrompt;
 
   const baseUrl = ($('baseUrlInput').value.trim() || 'https://api.qinzhiai.com').replace(/\/$/, '');
-  const resp = await fetch(`${baseUrl}/v1/messages`, {
+  const useProxy = $('proxyToggle') && $('proxyToggle').checked;
+  const targetUrl = `${baseUrl}/v1/messages`;
+  const fetchUrl = useProxy
+    ? `https://corsproxy.io/?url=${encodeURIComponent(targetUrl)}`
+    : targetUrl;
+  const resp = await fetch(fetchUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -1305,6 +1317,7 @@ sendBtn.addEventListener('click', sendMessage);
 function openKeyModal() {
   keyInput.value = STATE.apiKey;
   $('baseUrlInput').value = localStorage.getItem('relay_baseurl') || 'https://api.qinzhiai.com';
+  $('proxyToggle').checked = localStorage.getItem('relay_proxy') === '1';
   keyModal.classList.add('open');
   setTimeout(() => keyInput.focus(), 100);
 }
@@ -1320,6 +1333,7 @@ $('keySave').addEventListener('click', () => {
   localStorage.setItem('relay_apikey', val);
   const urlVal = $('baseUrlInput').value.trim() || 'https://api.qinzhiai.com';
   localStorage.setItem('relay_baseurl', urlVal);
+  localStorage.setItem('relay_proxy', $('proxyToggle').checked ? '1' : '0');
   keyModal.classList.remove('open');
   sendBtn.disabled = false;
   showToast('✓ 已保存', 'success');
