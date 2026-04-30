@@ -1,0 +1,1381 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Claude 中转留存</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600&family=JetBrains+Mono:wght@400;500&family=Syne:wght@400;700;800&display=swap');
+
+  :root {
+    --bg: #0e0e10;
+    --surface: #16161a;
+    --surface2: #1e1e24;
+    --border: #2a2a32;
+    --accent: #7b6ef6;
+    --accent2: #4ecdc4;
+    --warn: #f7b731;
+    --danger: #ff6b6b;
+    --text: #e8e8f0;
+    --text2: #8888a0;
+    --text3: #55556a;
+    --user-bubble: #1e1e34;
+    --ai-bubble: #16161a;
+    --radius: 12px;
+    --radius-sm: 8px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Noto Serif SC', serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ── Header ── */
+  header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 20px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    position: relative;
+    z-index: 10;
+  }
+
+  .logo {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 16px;
+    letter-spacing: -0.5px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    white-space: nowrap;
+  }
+
+  .header-sep { flex: 1; }
+
+  .session-badge {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text2);
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 3px 10px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .session-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--accent2);
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0%,100% { opacity:1; transform:scale(1); }
+    50% { opacity:.4; transform:scale(.85); }
+  }
+
+  .context-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text2);
+  }
+
+  .ctx-fill {
+    width: 80px;
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .ctx-fill-inner {
+    height: 100%;
+    border-radius: 2px;
+    background: var(--accent2);
+    transition: width .5s ease, background .5s ease;
+  }
+
+  .ctx-fill-inner.warn { background: var(--warn); }
+  .ctx-fill-inner.danger { background: var(--danger); }
+
+  .btn-icon {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text2);
+    border-radius: var(--radius-sm);
+    padding: 5px 10px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all .2s;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+  }
+  .btn-icon:hover { background: var(--border); color: var(--text); }
+  .btn-icon.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  /* ── API Key Modal ── */
+  .modal-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,.7);
+    backdrop-filter: blur(6px);
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .3s;
+  }
+  .modal-overlay.open { opacity: 1; pointer-events: all; }
+
+  .modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 28px 32px;
+    width: 440px;
+    max-width: 90vw;
+    transform: translateY(12px);
+    transition: transform .3s;
+  }
+  .modal-overlay.open .modal { transform: translateY(0); }
+
+  .modal h2 {
+    font-family: 'Syne', sans-serif;
+    font-size: 18px;
+    font-weight: 700;
+    margin-bottom: 6px;
+  }
+  .modal p { font-size: 12px; color: var(--text2); margin-bottom: 18px; line-height: 1.6; }
+  .modal input {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    padding: 10px 14px;
+    margin-bottom: 14px;
+    outline: none;
+    transition: border .2s;
+  }
+  .modal input:focus { border-color: var(--accent); }
+
+  .modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
+
+  .btn-primary {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: var(--radius-sm);
+    padding: 8px 20px;
+    font-family: 'Syne', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: opacity .2s;
+  }
+  .btn-primary:hover { opacity: .85; }
+  .btn-cancel {
+    background: transparent;
+    color: var(--text2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 8px 16px;
+    font-family: 'Syne', sans-serif;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all .2s;
+  }
+  .btn-cancel:hover { background: var(--border); color: var(--text); }
+
+  /* ── System prompt panel ── */
+  .sys-panel {
+    background: var(--surface2);
+    border-bottom: 1px solid var(--border);
+    padding: 0 20px;
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height .3s ease, padding .3s;
+  }
+  .sys-panel.open { max-height: 140px; padding: 12px 20px; }
+  .sys-panel textarea {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    padding: 8px 12px;
+    resize: none;
+    height: 80px;
+    outline: none;
+    transition: border .2s;
+  }
+  .sys-panel textarea:focus { border-color: var(--accent); }
+  .sys-label { font-size: 10px; font-family: 'JetBrains Mono', monospace; color: var(--text3); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 1px; }
+
+  /* ── Chat area ── */
+  .chat-wrap {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px 0;
+    scroll-behavior: smooth;
+  }
+
+  .chat-inner {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 0 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  /* Session divider */
+  .session-divider {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 16px 0 12px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text3);
+  }
+  .session-divider::before, .session-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  /* Message bubbles */
+  .msg {
+    display: flex;
+    gap: 10px;
+    padding: 3px 0;
+    animation: fadeUp .25s ease;
+  }
+  @keyframes fadeUp {
+    from { opacity:0; transform:translateY(6px); }
+    to   { opacity:1; transform:translateY(0); }
+  }
+
+  .msg.user { flex-direction: row-reverse; }
+
+  .avatar {
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+  .avatar.user { background: var(--accent); color: #fff; font-family: 'Syne', sans-serif; font-weight: 700; }
+  .avatar.ai { background: var(--surface2); border: 1px solid var(--border); font-size: 14px; }
+
+  .bubble {
+    max-width: 78%;
+    padding: 10px 14px;
+    border-radius: var(--radius);
+    font-size: 14px;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .msg.user .bubble {
+    background: var(--user-bubble);
+    border: 1px solid #2a2a4a;
+    border-bottom-right-radius: 4px;
+  }
+  .msg.ai .bubble {
+    background: var(--ai-bubble);
+    border: 1px solid var(--border);
+    border-bottom-left-radius: 4px;
+  }
+
+  .bubble img {
+    max-width: 100%;
+    border-radius: 8px;
+    margin-top: 6px;
+    display: block;
+  }
+
+  /* Code blocks inside bubbles */
+  .bubble code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    background: var(--bg);
+    padding: 1px 5px;
+    border-radius: 4px;
+    color: var(--accent2);
+  }
+  .bubble pre {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    overflow-x: auto;
+    margin-top: 8px;
+  }
+  .bubble pre code { background: none; padding: 0; }
+
+  .msg-meta {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text3);
+    margin-top: 3px;
+    padding: 0 4px;
+  }
+  .msg.user .msg-meta { text-align: right; }
+
+  /* Typing indicator */
+  .typing-indicator {
+    display: flex; gap: 4px; align-items: center;
+    padding: 12px 14px;
+  }
+  .typing-indicator span {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--text3);
+    animation: bounce 1.2s infinite;
+  }
+  .typing-indicator span:nth-child(2) { animation-delay: .2s; }
+  .typing-indicator span:nth-child(3) { animation-delay: .4s; }
+  @keyframes bounce {
+    0%,60%,100% { transform:translateY(0); }
+    30% { transform:translateY(-6px); }
+  }
+
+  /* Auto-summarized context hint */
+  .relay-notice {
+    background: linear-gradient(135deg, rgba(123,110,246,.12), rgba(78,205,196,.08));
+    border: 1px solid rgba(123,110,246,.25);
+    border-radius: var(--radius-sm);
+    padding: 8px 14px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--accent);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 8px 0;
+  }
+
+  /* ── Input area ── */
+  .input-wrap {
+    flex-shrink: 0;
+    padding: 14px 20px 18px;
+    background: var(--bg);
+    border-top: 1px solid var(--border);
+  }
+
+  .input-inner {
+    max-width: 760px;
+    margin: 0 auto;
+  }
+
+  /* File preview strip */
+  .file-strip {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+    min-height: 0;
+  }
+
+  .file-chip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 4px 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text2);
+    position: relative;
+    max-width: 160px;
+  }
+  .file-chip img {
+    width: 28px; height: 28px;
+    object-fit: cover;
+    border-radius: 4px;
+  }
+  .file-chip .chip-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 90px;
+  }
+  .file-chip .chip-remove {
+    cursor: pointer;
+    color: var(--text3);
+    font-size: 14px;
+    line-height: 1;
+    transition: color .2s;
+    flex-shrink: 0;
+  }
+  .file-chip .chip-remove:hover { color: var(--danger); }
+
+  .input-row {
+    display: flex;
+    gap: 10px;
+    align-items: flex-end;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 10px 12px;
+    transition: border .2s;
+  }
+  .input-row:focus-within { border-color: var(--accent); }
+
+  .input-actions-left {
+    display: flex;
+    gap: 4px;
+    align-items: flex-end;
+    padding-bottom: 2px;
+  }
+
+  .icon-btn {
+    background: none;
+    border: none;
+    color: var(--text3);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 6px;
+    font-size: 16px;
+    transition: color .2s, background .2s;
+    line-height: 1;
+  }
+  .icon-btn:hover { color: var(--text); background: var(--surface2); }
+
+  textarea#chatInput {
+    flex: 1;
+    background: none;
+    border: none;
+    outline: none;
+    color: var(--text);
+    font-family: 'Noto Serif SC', serif;
+    font-size: 14px;
+    line-height: 1.6;
+    resize: none;
+    max-height: 180px;
+    overflow-y: auto;
+    padding: 2px 0;
+  }
+  textarea#chatInput::placeholder { color: var(--text3); }
+
+  .send-btn {
+    background: var(--accent);
+    border: none;
+    border-radius: 10px;
+    color: #fff;
+    width: 34px;
+    height: 34px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: opacity .2s, transform .1s;
+    font-size: 16px;
+  }
+  .send-btn:hover { opacity: .85; }
+  .send-btn:active { transform: scale(.93); }
+  .send-btn:disabled { opacity: .35; cursor: not-allowed; }
+
+  .input-hint {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text3);
+    text-align: center;
+    margin-top: 8px;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text3); }
+
+  /* Toast */
+  .toast {
+    position: fixed;
+    bottom: 90px;
+    left: 50%;
+    transform: translateX(-50%) translateY(10px);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 8px 18px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--text2);
+    opacity: 0;
+    transition: opacity .3s, transform .3s;
+    pointer-events: none;
+    z-index: 50;
+    white-space: nowrap;
+  }
+  .toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+  .toast.success { border-color: var(--accent2); color: var(--accent2); }
+  .toast.warn { border-color: var(--warn); color: var(--warn); }
+  .toast.error { border-color: var(--danger); color: var(--danger); }
+
+  /* Empty state */
+  .empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--text3);
+  }
+  .empty-state .big-icon { font-size: 48px; margin-bottom: 16px; }
+  .empty-state h3 {
+    font-family: 'Syne', sans-serif;
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text2);
+    margin-bottom: 8px;
+  }
+  .empty-state p { font-size: 13px; line-height: 1.7; max-width: 360px; margin: 0 auto; }
+
+  .key-hint {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 20px;
+    padding: 8px 16px;
+    background: var(--surface2);
+    border: 1px dashed var(--border);
+    border-radius: 20px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--accent);
+    cursor: pointer;
+    transition: all .2s;
+  }
+  .key-hint:hover { background: var(--surface); border-color: var(--accent); }
+
+  /* Model selector */
+  select.model-sel {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text2);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    padding: 4px 8px;
+    cursor: pointer;
+    outline: none;
+  }
+  select.model-sel:focus { border-color: var(--accent); }
+
+  /* relay threshold input */
+  input.threshold-input {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    padding: 4px 8px;
+    width: 56px;
+    outline: none;
+    text-align: center;
+  }
+  input.threshold-input:focus { border-color: var(--accent); }
+</style>
+</head>
+<body>
+
+<!-- API Key Modal -->
+<div class="modal-overlay" id="keyModal">
+  <div class="modal">
+    <h2>🔑 设置 API Key</h2>
+    <p>填入你的 API Key 和中转地址，数据仅保存在浏览器本地。</p>
+    <div class="sys-label" style="margin-bottom:6px;">API Key</div>
+    <input type="password" id="keyInput" placeholder="sk-..." autocomplete="off" />
+    <div class="sys-label" style="margin-bottom:6px;">API Base URL（中转地址）</div>
+    <input type="text" id="baseUrlInput" placeholder="https://api.qinzhiai.com" autocomplete="off" style="margin-bottom:14px;" />
+    <div style="font-size:11px;color:var(--text3);font-family:'JetBrains Mono',monospace;margin-bottom:14px;">
+      官方直连填 <code style="color:var(--accent2)">https://api.anthropic.com</code>，中转按实际地址填写
+    </div>
+    <div class="modal-actions">
+      <button class="btn-cancel" id="keyCancel">取消</button>
+      <button class="btn-primary" id="keySave">保存并开始</button>
+    </div>
+  </div>
+</div>
+
+<!-- Header -->
+<header>
+  <div class="logo">Claude Relay</div>
+
+  <select class="model-sel" id="modelSel">
+    <option value="claude-sonnet-4-20250514">Sonnet 4</option>
+    <option value="claude-opus-4-20250514">Opus 4</option>
+    <option value="claude-haiku-4-5-20251001">Haiku 4.5</option>
+  </select>
+
+  <div class="header-sep"></div>
+
+  <div class="context-bar">
+    <span>上下文</span>
+    <div class="ctx-fill"><div class="ctx-fill-inner" id="ctxBar" style="width:0%"></div></div>
+    <span id="ctxPct">0%</span>
+    <span style="color:var(--text3)">切换阈值</span>
+    <input class="threshold-input" id="thresholdInput" type="number" min="30" max="90" value="75" title="上下文使用率超过此百分比时自动中转" />
+    <span>%</span>
+  </div>
+
+  <div class="session-badge">
+    <div class="session-dot"></div>
+    <span id="sessionLabel">会话 #1</span>
+  </div>
+
+  <button class="btn-icon" id="sysBtn">⚙ 系统提示</button>
+  <button class="btn-icon" id="keyBtn">🔑 API Key / 地址</button>
+  <button class="btn-icon" id="clearBtn">🗑 清空</button>
+</header>
+
+<!-- System prompt panel -->
+<div class="sys-panel" id="sysPanel">
+  <div class="sys-label">System Prompt（所有会话共享）</div>
+  <textarea id="sysPrompt" placeholder="在此输入系统提示词，中转后新会话会自动携带..."></textarea>
+</div>
+
+<!-- Chat -->
+<div class="chat-wrap" id="chatWrap">
+  <div class="chat-inner" id="chatInner">
+    <div class="empty-state" id="emptyState">
+      <div class="big-icon">⟳</div>
+      <h3>Claude Relay 中转留存</h3>
+      <p>会话历史完整保留在本地，上下文接近上限时自动无缝中转到新会话，你永远看到的是一条连续的对话。</p>
+      <div class="key-hint" id="emptyKeyBtn">🔑 先设置 API Key 开始对话</div>
+    </div>
+  </div>
+</div>
+
+<!-- Input -->
+<div class="input-wrap">
+  <div class="input-inner">
+    <div class="file-strip" id="fileStrip"></div>
+    <div class="input-row">
+      <div class="input-actions-left">
+        <label class="icon-btn" title="上传图片/文件" style="cursor:pointer">
+          📎
+          <input type="file" id="fileInput" multiple accept="image/*,.pdf,.txt,.md,.csv,.json,.js,.py,.html,.css" style="display:none" />
+        </label>
+      </div>
+      <textarea id="chatInput" rows="1" placeholder="发消息…  Shift+Enter 换行，Enter 发送"></textarea>
+      <button class="send-btn" id="sendBtn" disabled>
+        ↑
+      </button>
+    </div>
+    <div class="input-hint">
+      消息历史保存本地 · 上下文 <span id="hintPct">0%</span> · 超过 <span id="hintThresh">75</span>% 自动中转
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ─────────────────────────────────────────────
+// State
+// ─────────────────────────────────────────────
+const STATE = {
+  apiKey: localStorage.getItem('relay_apikey') || '',
+  model: 'claude-sonnet-4-20250514',
+  sysPrompt: localStorage.getItem('relay_sysprompt') || '',
+  sessionCount: 1,
+  // Full display history (never truncated) – shown to user
+  displayHistory: [],
+  // Active API context window (may be truncated/summarized)
+  apiContext: [],
+  // Approx token count for context estimation
+  contextTokens: 0,
+  maxTokens: 90000, // conservative estimate for claude-sonnet
+  pendingFiles: [],  // {name, type, dataUrl, b64, mediaType}
+  isStreaming: false,
+};
+
+// Load display history from localStorage
+try {
+  const saved = localStorage.getItem('relay_history');
+  if (saved) STATE.displayHistory = JSON.parse(saved);
+} catch(e) {}
+try {
+  const savedCtx = localStorage.getItem('relay_apicontext');
+  if (savedCtx) STATE.apiContext = JSON.parse(savedCtx);
+} catch(e) {}
+
+// ─────────────────────────────────────────────
+// DOM refs
+// ─────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const chatInner = $('chatInner');
+const chatWrap = $('chatWrap');
+const chatInput = $('chatInput');
+const sendBtn = $('sendBtn');
+const fileInput = $('fileInput');
+const fileStrip = $('fileStrip');
+const ctxBar = $('ctxBar');
+const ctxPct = $('ctxPct');
+const hintPct = $('hintPct');
+const hintThresh = $('hintThresh');
+const sessionLabel = $('sessionLabel');
+const keyModal = $('keyModal');
+const keyInput = $('keyInput');
+const thresholdInput = $('thresholdInput');
+const emptyState = $('emptyState');
+const sysPanel = $('sysPanel');
+const sysPromptEl = $('sysPrompt');
+
+// ─────────────────────────────────────────────
+// Init
+// ─────────────────────────────────────────────
+sysPromptEl.value = STATE.sysPrompt;
+if (STATE.apiKey) sendBtn.disabled = false;
+if (STATE.displayHistory.length > 0) {
+  emptyState.remove();
+  renderAllHistory();
+}
+updateContextBar();
+
+// ─────────────────────────────────────────────
+// Token estimation (rough: 1 token ≈ 4 chars)
+// ─────────────────────────────────────────────
+function estimateTokens(messages) {
+  let total = 0;
+  for (const m of messages) {
+    if (typeof m.content === 'string') {
+      total += Math.ceil(m.content.length / 4);
+    } else if (Array.isArray(m.content)) {
+      for (const block of m.content) {
+        if (block.type === 'text') total += Math.ceil((block.text||'').length / 4);
+        else if (block.type === 'image') total += 800; // rough image token cost
+      }
+    }
+  }
+  return total;
+}
+
+function updateContextBar() {
+  STATE.contextTokens = estimateTokens(STATE.apiContext);
+  const pct = Math.min(100, Math.round((STATE.contextTokens / STATE.maxTokens) * 100));
+  ctxBar.style.width = pct + '%';
+  ctxBar.className = 'ctx-fill-inner' + (pct >= 85 ? ' danger' : pct >= getThreshold() ? ' warn' : '');
+  ctxPct.textContent = pct + '%';
+  hintPct.textContent = pct + '%';
+}
+
+function getThreshold() {
+  return parseInt(thresholdInput.value) || 75;
+}
+
+thresholdInput.addEventListener('input', () => {
+  hintThresh.textContent = thresholdInput.value;
+  updateContextBar();
+});
+
+// ─────────────────────────────────────────────
+// Render helpers
+// ─────────────────────────────────────────────
+function escapeHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function renderMarkdown(text) {
+  // Simple markdown: code blocks, inline code, bold, italic
+  let html = escapeHtml(text);
+  // Code blocks
+  html = html.replace(/```[\w]*\n?([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
+  // Inline code
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+  // Bold
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  // Italic
+  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  // Line breaks
+  html = html.replace(/\n/g, '<br>');
+  return html;
+}
+
+function buildBubbleHTML(entry) {
+  const isUser = entry.role === 'user';
+  const time = entry.time ? new Date(entry.time).toLocaleTimeString('zh-CN', {hour:'2-digit',minute:'2-digit'}) : '';
+  const sessionTag = entry.session ? `#${entry.session}` : '';
+
+  let contentHTML = '';
+  if (typeof entry.content === 'string') {
+    contentHTML = `<div class="bubble">${renderMarkdown(entry.content)}</div>`;
+  } else if (Array.isArray(entry.content)) {
+    let parts = '';
+    for (const block of entry.content) {
+      if (block.type === 'text') {
+        parts += renderMarkdown(block.text);
+      } else if (block.type === 'image_url') {
+        parts += `<img src="${block.url}" alt="图片" loading="lazy">`;
+      } else if (block.type === 'file_label') {
+        parts += `<div style="display:inline-flex;align-items:center;gap:5px;padding:3px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text2);margin-top:4px;">📄 ${escapeHtml(block.name)}</div>`;
+      }
+    }
+    contentHTML = `<div class="bubble">${parts}</div>`;
+  }
+
+  return `
+    <div class="msg ${isUser?'user':'ai'}">
+      <div class="avatar ${isUser?'user':'ai'}">${isUser ? 'U' : '✦'}</div>
+      <div>
+        ${contentHTML}
+        <div class="msg-meta">${time}${sessionTag ? ' · 会话'+sessionTag : ''}</div>
+      </div>
+    </div>
+  `;
+}
+
+function renderAllHistory() {
+  // Remove empty state if present
+  if ($('emptyState')) $('emptyState').remove();
+  chatInner.innerHTML = '';
+
+  let lastSession = null;
+  for (const entry of STATE.displayHistory) {
+    if (entry.type === 'divider') {
+      const div = document.createElement('div');
+      div.className = 'session-divider';
+      div.textContent = entry.label;
+      chatInner.appendChild(div);
+      continue;
+    }
+    if (entry.type === 'relay_notice') {
+      const notice = document.createElement('div');
+      notice.className = 'relay-notice';
+      notice.innerHTML = `⟳ ${escapeHtml(entry.text)}`;
+      chatInner.appendChild(notice);
+      continue;
+    }
+    const el = document.createElement('div');
+    el.innerHTML = buildBubbleHTML(entry);
+    chatInner.appendChild(el.firstElementChild);
+  }
+  scrollToBottom();
+}
+
+function appendMessage(entry) {
+  if ($('emptyState')) $('emptyState').remove();
+  if (entry.type === 'divider') {
+    const div = document.createElement('div');
+    div.className = 'session-divider';
+    div.textContent = entry.label;
+    chatInner.appendChild(div);
+  } else if (entry.type === 'relay_notice') {
+    const notice = document.createElement('div');
+    notice.className = 'relay-notice';
+    notice.innerHTML = `⟳ ${escapeHtml(entry.text)}`;
+    chatInner.appendChild(notice);
+  } else {
+    const el = document.createElement('div');
+    el.innerHTML = buildBubbleHTML(entry);
+    chatInner.appendChild(el.firstElementChild);
+  }
+  scrollToBottom();
+}
+
+function scrollToBottom() {
+  chatWrap.scrollTop = chatWrap.scrollHeight;
+}
+
+// Typing bubble
+let typingEl = null;
+function showTyping() {
+  if (typingEl) return;
+  typingEl = document.createElement('div');
+  typingEl.className = 'msg ai';
+  typingEl.id = 'typingBubble';
+  typingEl.innerHTML = `
+    <div class="avatar ai">✦</div>
+    <div>
+      <div class="bubble">
+        <div class="typing-indicator"><span></span><span></span><span></span></div>
+      </div>
+    </div>`;
+  chatInner.appendChild(typingEl);
+  scrollToBottom();
+}
+
+function removeTyping() {
+  if (typingEl) { typingEl.remove(); typingEl = null; }
+}
+
+// Streaming bubble
+let streamEl = null;
+let streamText = '';
+
+function initStreamBubble() {
+  removeTyping();
+  streamText = '';
+  streamEl = document.createElement('div');
+  streamEl.className = 'msg ai';
+  streamEl.innerHTML = `
+    <div class="avatar ai">✦</div>
+    <div>
+      <div class="bubble" id="streamContent"></div>
+      <div class="msg-meta" id="streamMeta"></div>
+    </div>`;
+  chatInner.appendChild(streamEl);
+  scrollToBottom();
+}
+
+function appendStreamText(chunk) {
+  streamText += chunk;
+  const el = document.getElementById('streamContent');
+  if (el) el.innerHTML = renderMarkdown(streamText);
+  scrollToBottom();
+}
+
+function finalizeStream(sessionNum) {
+  const metaEl = document.getElementById('streamMeta');
+  if (metaEl) {
+    const time = new Date().toLocaleTimeString('zh-CN', {hour:'2-digit',minute:'2-digit'});
+    metaEl.textContent = `${time} · 会话#${sessionNum}`;
+    metaEl.id = '';
+  }
+  if (document.getElementById('streamContent')) {
+    document.getElementById('streamContent').id = '';
+  }
+  streamEl = null;
+}
+
+// ─────────────────────────────────────────────
+// Save to localStorage
+// ─────────────────────────────────────────────
+function saveHistory() {
+  try {
+    localStorage.setItem('relay_history', JSON.stringify(STATE.displayHistory));
+    localStorage.setItem('relay_apicontext', JSON.stringify(STATE.apiContext));
+  } catch(e) {
+    showToast('存储空间不足，历史记录可能未全部保存', 'warn');
+  }
+}
+
+// ─────────────────────────────────────────────
+// Context relay (auto-summarize & reset)
+// ─────────────────────────────────────────────
+async function performRelay() {
+  STATE.sessionCount++;
+  sessionLabel.textContent = `会话 #${STATE.sessionCount}`;
+
+  // Ask Claude to summarize the context
+  showToast('⟳ 上下文接近上限，正在自动中转...', 'warn');
+
+  // Build summary request
+  const summaryMessages = [
+    ...STATE.apiContext,
+    {
+      role: 'user',
+      content: '请将以上对话内容生成一份简洁但完整的上下文摘要，格式如下：\n【对话摘要】\n- 主要话题与进展\n- 已确认的关键信息\n- 未解决的问题\n- 用户的偏好和特殊要求\n请用中文，控制在500字以内。'
+    }
+  ];
+
+  let summary = '';
+  try {
+    const resp = await callClaudeAPI(summaryMessages, false);
+    summary = resp;
+  } catch(e) {
+    summary = '（摘要生成失败，携带最近消息继续）';
+  }
+
+  // Reset apiContext with summary as system-level context
+  const sysBase = STATE.sysPrompt ? STATE.sysPrompt + '\n\n' : '';
+  const summaryMsg = {
+    role: 'user',
+    content: `${sysBase}【对话上下文摘要（自动中转）】\n${summary}`
+  };
+  const summaryAck = {
+    role: 'assistant',
+    content: '已理解以上对话摘要，我会继续保持一致的上下文继续对话。'
+  };
+
+  STATE.apiContext = [summaryMsg, summaryAck];
+
+  // Add divider and notice to display
+  const divEntry = {
+    type: 'divider',
+    label: `── 会话 #${STATE.sessionCount} 自动中转 ──`
+  };
+  const noticeEntry = {
+    type: 'relay_notice',
+    text: `已自动创建新会话 #${STATE.sessionCount}，完整对话历史保留在本地。上下文摘要已无缝传递。`
+  };
+  STATE.displayHistory.push(divEntry, noticeEntry);
+  appendMessage(divEntry);
+  appendMessage(noticeEntry);
+
+  updateContextBar();
+  showToast(`✓ 已中转至会话 #${STATE.sessionCount}`, 'success');
+}
+
+// ─────────────────────────────────────────────
+// Claude API call
+// ─────────────────────────────────────────────
+async function callClaudeAPI(messages, stream = true) {
+  const model = $('modelSel').value;
+  const sysPrompt = sysPromptEl.value.trim();
+
+  const body = {
+    model,
+    max_tokens: 4096,
+    stream,
+    messages,
+  };
+  if (sysPrompt) body.system = sysPrompt;
+
+  const baseUrl = ($('baseUrlInput').value.trim() || 'https://api.qinzhiai.com').replace(/\/$/, '');
+  const resp = await fetch(`${baseUrl}/v1/messages`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': STATE.apiKey,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!resp.ok) {
+    const err = await resp.json().catch(()=>({error:{message:'Unknown error'}}));
+    throw new Error(err.error?.message || `HTTP ${resp.status}`);
+  }
+
+  if (!stream) {
+    const data = await resp.json();
+    return data.content?.[0]?.text || '';
+  }
+
+  // Streaming
+  return new Promise((resolve, reject) => {
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let full = '';
+    let buffer = '';
+
+    function pump() {
+      reader.read().then(({ done, value }) => {
+        if (done) { resolve(full); return; }
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const data = line.slice(6).trim();
+          if (data === '[DONE]') { resolve(full); return; }
+          try {
+            const parsed = JSON.parse(data);
+            if (parsed.type === 'content_block_delta' && parsed.delta?.type === 'text_delta') {
+              const chunk = parsed.delta.text;
+              full += chunk;
+              appendStreamText(chunk);
+            }
+          } catch(e) {}
+        }
+        pump();
+      }).catch(reject);
+    }
+    pump();
+  });
+}
+
+// ─────────────────────────────────────────────
+// Send message
+// ─────────────────────────────────────────────
+async function sendMessage() {
+  if (STATE.isStreaming) return;
+  const text = chatInput.value.trim();
+  const files = [...STATE.pendingFiles];
+  if (!text && files.length === 0) return;
+  if (!STATE.apiKey) { openKeyModal(); return; }
+
+  STATE.isStreaming = true;
+  sendBtn.disabled = true;
+  chatInput.value = '';
+  chatInput.style.height = '';
+  STATE.pendingFiles = [];
+  renderFileStrip();
+
+  // Build user message content for API
+  let apiContent;
+  const displayContent = [];
+
+  if (files.length > 0) {
+    apiContent = [];
+    for (const f of files) {
+      if (f.mediaType && f.mediaType.startsWith('image/')) {
+        apiContent.push({ type: 'image', source: { type: 'base64', media_type: f.mediaType, data: f.b64 } });
+        displayContent.push({ type: 'image_url', url: f.dataUrl });
+      } else {
+        // text file: embed as text
+        apiContent.push({ type: 'text', text: `[文件: ${f.name}]\n${f.textContent || '（二进制文件，无法嵌入文本）'}` });
+        displayContent.push({ type: 'file_label', name: f.name });
+      }
+    }
+    if (text) apiContent.push({ type: 'text', text });
+    if (text) displayContent.push({ type: 'text', text });
+  } else {
+    apiContent = text;
+    displayContent.push({ type: 'text', text });
+  }
+
+  // User message for display
+  const userEntry = {
+    role: 'user',
+    content: displayContent,
+    time: Date.now(),
+    session: STATE.sessionCount,
+  };
+  STATE.displayHistory.push(userEntry);
+  appendMessage(userEntry);
+
+  // Add to apiContext
+  STATE.apiContext.push({ role: 'user', content: apiContent });
+  updateContextBar();
+
+  // Check if relay needed BEFORE sending
+  const pct = (STATE.contextTokens / STATE.maxTokens) * 100;
+  if (pct >= getThreshold()) {
+    // Remove the just-added user message from apiContext temporarily
+    STATE.apiContext.pop();
+    await performRelay();
+    // Re-add user message after relay
+    STATE.apiContext.push({ role: 'user', content: apiContent });
+    updateContextBar();
+  }
+
+  // Show typing
+  showTyping();
+
+  try {
+    initStreamBubble();
+    const fullReply = await callClaudeAPI(STATE.apiContext, true);
+    finalizeStream(STATE.sessionCount);
+
+    // Save assistant reply
+    const aiEntry = {
+      role: 'assistant',
+      content: fullReply,
+      time: Date.now(),
+      session: STATE.sessionCount,
+    };
+    STATE.displayHistory.push(aiEntry);
+    STATE.apiContext.push({ role: 'assistant', content: fullReply });
+
+    updateContextBar();
+    saveHistory();
+
+    // Check relay for NEXT message
+    const pctAfter = (estimateTokens(STATE.apiContext) / STATE.maxTokens) * 100;
+    if (pctAfter >= getThreshold()) {
+      showToast(`⚠ 上下文 ${Math.round(pctAfter)}%，下条消息将自动中转`, 'warn');
+    }
+
+  } catch(e) {
+    removeTyping();
+    if (streamEl) { streamEl.remove(); streamEl = null; }
+    const errEntry = {
+      role: 'assistant',
+      content: `❌ 请求失败：${e.message}`,
+      time: Date.now(),
+      session: STATE.sessionCount,
+    };
+    STATE.displayHistory.push(errEntry);
+    appendMessage(errEntry);
+    showToast(`错误：${e.message}`, 'error');
+  }
+
+  STATE.isStreaming = false;
+  sendBtn.disabled = !STATE.apiKey;
+
+  // Save system prompt
+  localStorage.setItem('relay_sysprompt', sysPromptEl.value);
+}
+
+// ─────────────────────────────────────────────
+// File handling
+// ─────────────────────────────────────────────
+fileInput.addEventListener('change', async (e) => {
+  const newFiles = [...e.target.files];
+  for (const file of newFiles) {
+    const isImage = file.type.startsWith('image/');
+    const dataUrl = await readAsDataURL(file);
+    const b64 = dataUrl.split(',')[1];
+    let textContent = '';
+    if (!isImage && file.size < 200000) {
+      try { textContent = await file.text(); } catch(e) {}
+    }
+    STATE.pendingFiles.push({
+      name: file.name,
+      type: file.type,
+      mediaType: file.type,
+      dataUrl,
+      b64,
+      textContent,
+    });
+  }
+  fileInput.value = '';
+  renderFileStrip();
+});
+
+function readAsDataURL(file) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result);
+    r.onerror = rej;
+    r.readAsDataURL(file);
+  });
+}
+
+function renderFileStrip() {
+  fileStrip.innerHTML = '';
+  for (let i = 0; i < STATE.pendingFiles.length; i++) {
+    const f = STATE.pendingFiles[i];
+    const chip = document.createElement('div');
+    chip.className = 'file-chip';
+    if (f.mediaType.startsWith('image/')) {
+      chip.innerHTML = `<img src="${f.dataUrl}" alt="${f.name}"><span class="chip-name">${escapeHtml(f.name)}</span><span class="chip-remove" data-i="${i}">×</span>`;
+    } else {
+      chip.innerHTML = `<span>📄</span><span class="chip-name">${escapeHtml(f.name)}</span><span class="chip-remove" data-i="${i}">×</span>`;
+    }
+    fileStrip.appendChild(chip);
+  }
+  fileStrip.querySelectorAll('.chip-remove').forEach(btn => {
+    btn.addEventListener('click', () => {
+      STATE.pendingFiles.splice(parseInt(btn.dataset.i), 1);
+      renderFileStrip();
+    });
+  });
+}
+
+// ─────────────────────────────────────────────
+// Input auto-resize & keyboard
+// ─────────────────────────────────────────────
+chatInput.addEventListener('input', () => {
+  chatInput.style.height = 'auto';
+  chatInput.style.height = Math.min(chatInput.scrollHeight, 180) + 'px';
+  sendBtn.disabled = !STATE.apiKey || (chatInput.value.trim() === '' && STATE.pendingFiles.length === 0);
+});
+
+chatInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    if (!sendBtn.disabled) sendMessage();
+  }
+});
+
+sendBtn.addEventListener('click', sendMessage);
+
+// ─────────────────────────────────────────────
+// Controls
+// ─────────────────────────────────────────────
+function openKeyModal() {
+  keyInput.value = STATE.apiKey;
+  $('baseUrlInput').value = localStorage.getItem('relay_baseurl') || 'https://api.qinzhiai.com';
+  keyModal.classList.add('open');
+  setTimeout(() => keyInput.focus(), 100);
+}
+
+$('keyBtn').addEventListener('click', openKeyModal);
+$('emptyKeyBtn') && $('emptyKeyBtn').addEventListener('click', openKeyModal);
+$('emptyState') && $('emptyState').querySelector('.key-hint') && $('emptyState').querySelector('.key-hint').addEventListener('click', openKeyModal);
+
+$('keySave').addEventListener('click', () => {
+  const val = keyInput.value.trim();
+  if (!val.startsWith('sk-')) { showToast('API Key 格式不对，应以 sk- 开头', 'error'); return; }
+  STATE.apiKey = val;
+  localStorage.setItem('relay_apikey', val);
+  const urlVal = $('baseUrlInput').value.trim() || 'https://api.qinzhiai.com';
+  localStorage.setItem('relay_baseurl', urlVal);
+  keyModal.classList.remove('open');
+  sendBtn.disabled = false;
+  showToast('✓ 已保存', 'success');
+});
+
+$('keyCancel').addEventListener('click', () => keyModal.classList.remove('open'));
+keyModal.addEventListener('click', e => { if (e.target === keyModal) keyModal.classList.remove('open'); });
+keyInput.addEventListener('keydown', e => { if (e.key === 'Enter') $('keySave').click(); });
+
+$('sysBtn').addEventListener('click', () => {
+  sysPanel.classList.toggle('open');
+  $('sysBtn').classList.toggle('active');
+});
+
+sysPromptEl.addEventListener('input', () => {
+  localStorage.setItem('relay_sysprompt', sysPromptEl.value);
+});
+
+$('clearBtn').addEventListener('click', () => {
+  if (!confirm('清空所有对话历史和上下文？')) return;
+  STATE.displayHistory = [];
+  STATE.apiContext = [];
+  STATE.sessionCount = 1;
+  sessionLabel.textContent = '会话 #1';
+  localStorage.removeItem('relay_history');
+  localStorage.removeItem('relay_apicontext');
+  chatInner.innerHTML = '';
+  const empty = document.createElement('div');
+  empty.className = 'empty-state';
+  empty.id = 'emptyState';
+  empty.innerHTML = `<div class="big-icon">⟳</div><h3>Claude Relay 中转留存</h3><p>会话历史完整保留在本地，上下文接近上限时自动无缝中转到新会话，你永远看到的是一条连续的对话。</p><div class="key-hint" id="emptyKeyBtn">🔑 先设置 API Key 开始对话</div>`;
+  chatInner.appendChild(empty);
+  empty.querySelector('.key-hint').addEventListener('click', openKeyModal);
+  updateContextBar();
+  showToast('已清空', 'success');
+});
+
+$('modelSel').addEventListener('change', (e) => {
+  // Adjust maxTokens based on model
+  if (e.target.value.includes('opus')) STATE.maxTokens = 180000;
+  else if (e.target.value.includes('haiku')) STATE.maxTokens = 180000;
+  else STATE.maxTokens = 90000;
+  updateContextBar();
+});
+
+// ─────────────────────────────────────────────
+// Toast
+// ─────────────────────────────────────────────
+let toastTimer = null;
+function showToast(msg, type = '') {
+  const t = $('toast');
+  t.textContent = msg;
+  t.className = 'toast' + (type ? ' ' + type : '') + ' show';
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 3000);
+}
+</script>
+</body>
+</html>
